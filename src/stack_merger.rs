@@ -40,8 +40,17 @@ impl StackTrie {
     }
 
     fn insert(&mut self, stack: Vec<&str>, rank: u32) {
+        // Skip empty stacks
+        if stack.is_empty() {
+            return;
+        }
+        
         let mut node = &mut self.root;
         for frame in stack {
+            // Skip empty frame names
+            if frame.is_empty() {
+                continue;
+            }
             node = node.children.entry(frame.to_string()).or_insert_with(TrieNode::new);
             node.add_rank(rank);
         }
@@ -61,7 +70,7 @@ impl StackTrie {
             let mut str_buf = String::new();
             let mut low = 0;
             let mut high = 0;
-            if ranks.len() == 0 {
+            if ranks.is_empty() {
                 return str_buf;
             }
             while high < ranks.len() - 1 {
@@ -122,6 +131,7 @@ pub fn merge_stacks(stacks: Vec<&str>) -> StackTrie {
     trie
 }
 
+#[allow(dead_code)]
 fn read_file_to_list(file_path: &str) -> io::Result<Vec<String>> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
@@ -131,6 +141,40 @@ fn read_file_to_list(file_path: &str) -> io::Result<Vec<String>> {
         lines.push(line);
     }
     Ok(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_stack_handling() {
+        let stacks = vec!["", "main;func1", ""];
+        let trie = merge_stacks(stacks);
+        // Empty stacks should be skipped, so we should only have 1 stack
+        let results = trie.traverse_with_all_stack(&trie.root, Vec::new());
+        assert!(!results.is_empty(), "Should have at least one result for non-empty stack");
+    }
+
+    #[test]
+    fn test_empty_frame_handling() {
+        let stacks = vec!["main;;func1", "main;func2"];
+        let trie = merge_stacks(stacks);
+        let results = trie.traverse_with_all_stack(&trie.root, Vec::new());
+        // Should handle empty frames gracefully
+        assert!(!results.is_empty(), "Should process stacks despite empty frames");
+    }
+
+    #[test]
+    fn test_merge_stacks_basic() {
+        let stacks = vec![
+            "main;func1;func2",
+            "main;func1;func3",
+        ];
+        let trie = merge_stacks(stacks);
+        let results = trie.traverse_with_all_stack(&trie.root, Vec::new());
+        assert_eq!(results.len(), 2, "Should have 2 distinct paths");
+    }
 }
 
     //////////////////////////////////////////////////////////////////////////

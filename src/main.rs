@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, create_dir_all};
 use std::io::{Read, BufReader, BufRead};
 use std::io::Write;
 
@@ -23,6 +23,9 @@ use process_data::process_callstacks;
  */
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Ensure output directory exists
+    create_dir_all("./output")?;
+
     let mut file = File::open("./output/urls.json")?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -38,17 +41,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Processed call stacks have been written to {}", output_path);
 
 
+    // Stream process the file to build the trie without loading everything into memory
     let file = File::open("./output/processed_stacks.txt")?;
     let reader = BufReader::new(file);
 
-    let mut content = String::new();
+    // Collect stacks into a vector, but process line by line
+    let mut stacks = Vec::new();
     for line in reader.lines() {
-        content.push_str(&line?);
-        content.push('\n'); // 保留换行符
+        let line = line?;
+        if !line.is_empty() {
+            stacks.push(line);
+        }
     }
 
-    let stacks: Vec<&str> = content.lines().collect();
-    let trie = merge_stacks(stacks);
+    // Convert to string references for processing
+    let stack_refs: Vec<&str> = stacks.iter().map(|s| s.as_str()).collect();
+    let trie = merge_stacks(stack_refs);
 
     let mut output = File::create("./output/merged_stacks_4ranks.txt")?;
     for (path, rank_str) in trie.traverse_with_all_stack(&trie.root, Vec::new()) {
