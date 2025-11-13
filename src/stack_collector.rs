@@ -119,8 +119,10 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore] // Ignore by default as it requires network access and modifies output.json
     async fn test_fetch_urls_performance() {
         // Test with a small batch to ensure the function works correctly
+        // Run with: cargo test -- --ignored
         // In a real scenario with 10000+ URLs, this would demonstrate the improvements
         let urls = vec![
             "https://httpbin.org/delay/0".to_string(),
