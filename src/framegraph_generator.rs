@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, create_dir_all};
 use std::io::BufReader;
 use inferno::flamegraph::{self, Options, Palette};
 
@@ -10,6 +10,9 @@ pub fn draw_frame_graph(file_path: &str) {
     let mut options = Options::default();
     options.colors = Palette::Multi(flamegraph::color::MultiPalette::Java);
 
+    // Ensure output directory exists
+    create_dir_all("./output").expect("Failed to create output directory");
+
     let mut output_file = File::create("./output/flamegraph222.svg").expect("Failed to create SVG file");
     flamegraph::from_reader(&mut options, reader, &mut output_file).expect("Failed to generate flamegraph");
 
@@ -17,9 +20,9 @@ pub fn draw_frame_graph(file_path: &str) {
 }
 
 #[cfg(test)]
-use std::fs;
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_draw_frame_graph() {
