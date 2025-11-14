@@ -16,20 +16,21 @@ pub async fn fetch_and_save_urls(urls: Vec<String>) -> Result<(), Box<dyn std::e
     // Create client with optimized settings for high concurrency
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .pool_max_idle_per_host(50)  // Increased for better connection reuse
+        .pool_max_idle_per_host(200)  // Increased to support higher concurrency
         .pool_idle_timeout(Duration::from_secs(90))
         .build()?;
 
-    // Control concurrency with batch processing for progress reporting
-    // BATCH_SIZE controls both the number of tasks created per batch and max concurrent requests
-    const BATCH_SIZE: usize = 100;
-    const MAX_CONCURRENT: usize = 100;  // Match BATCH_SIZE since we process in batches
+    // Increase concurrency significantly for better performance
+    // MAX_CONCURRENT controls how many requests can run simultaneously
+    // Higher values = faster processing but more system resources
+    const MAX_CONCURRENT: usize = 500;  // Increased from 100 for better throughput
     
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
     let mut data_list = Vec::with_capacity(total_urls);
     let mut failed_urls = Vec::new();
 
-    // Process all URLs with controlled concurrency
+    // Create ALL tasks upfront with semaphore-based concurrency control
+    // This allows continuous processing without batch-based waiting
     let mut all_tasks = Vec::new();
     
     for (idx, url) in urls.iter().enumerate() {
@@ -58,32 +59,29 @@ pub async fn fetch_and_save_urls(urls: Vec<String>) -> Result<(), Box<dyn std::e
             }
         };
         all_tasks.push(task);
-        
-        // Process in batches to show progress
-        if (idx + 1) % BATCH_SIZE == 0 || idx == total_urls - 1 {
-            let batch_results: Vec<Result<(Option<Value>, String, usize), reqwest::Error>> = join_all(all_tasks.drain(..)).await;
-            
-            for result in batch_results {
-                match result {
-                    Ok((Some(json), _url, index)) => {
-                        if data_list.len() <= index {
-                            data_list.resize(index + 1, Value::Null);
-                        }
-                        data_list[index] = json;
-                    }
-                    Ok((None, url, index)) => {
-                        failed_urls.push(url);
-                        if data_list.len() <= index {
-                            data_list.resize(index + 1, Value::Null);
-                        }
-                        data_list[index] = Value::Array(Vec::new());
-                    }
-                    Err(e) => eprintln!("Unexpected error: {}", e),
+    }
+    
+    // Process all tasks concurrently with semaphore controlling max concurrency
+    println!("Processing all {} URLs with max {} concurrent requests...", total_urls, MAX_CONCURRENT);
+    let results: Vec<Result<(Option<Value>, String, usize), reqwest::Error>> = join_all(all_tasks).await;
+    
+    // Process results
+    for result in results {
+        match result {
+            Ok((Some(json), _url, index)) => {
+                if data_list.len() <= index {
+                    data_list.resize(index + 1, Value::Null);
                 }
+                data_list[index] = json;
             }
-            
-            let progress = ((idx + 1) as f64 / total_urls as f64 * 100.0) as usize;
-            println!("Progress: {}/{} URLs processed ({}%)", idx + 1, total_urls, progress);
+            Ok((None, url, index)) => {
+                failed_urls.push(url);
+                if data_list.len() <= index {
+                    data_list.resize(index + 1, Value::Null);
+                }
+                data_list[index] = Value::Array(Vec::new());
+            }
+            Err(e) => eprintln!("Unexpected error: {}", e),
         }
     }
 
@@ -149,11 +147,10 @@ mod tests {
     fn test_constants() {
         // Verify optimized constants are set correctly
         // These constants are defined inside the function, but we can verify they're documented
-        // BATCH_SIZE should be 100 for optimal throughput
-        // MAX_CONCURRENT should be 100 to match BATCH_SIZE (controlled concurrency)
-        // pool_max_idle_per_host should be 50 for better connection reuse
+        // MAX_CONCURRENT should be 500 for high throughput (controlled concurrency)
+        // pool_max_idle_per_host should be 200 for better connection reuse
         
         // This test documents the expected performance characteristics
-        assert!(true, "Performance constants documented: BATCH_SIZE=100, MAX_CONCURRENT=100");
+        assert!(true, "Performance constants documented: MAX_CONCURRENT=500, pool_max_idle_per_host=200");
     }
 }
