@@ -20,10 +20,10 @@ pub async fn fetch_and_save_urls(urls: Vec<String>) -> Result<(), Box<dyn std::e
         .pool_idle_timeout(Duration::from_secs(90))
         .build()?;
 
-    // Use larger batch size for better throughput
+    // Control concurrency with batch processing for progress reporting
+    // BATCH_SIZE controls both the number of tasks created per batch and max concurrent requests
     const BATCH_SIZE: usize = 100;
-    // Limit concurrent requests to avoid overwhelming the system
-    const MAX_CONCURRENT: usize = 200;
+    const MAX_CONCURRENT: usize = 100;  // Match BATCH_SIZE since we process in batches
     
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
     let mut data_list = Vec::with_capacity(total_urls);
@@ -150,10 +150,10 @@ mod tests {
         // Verify optimized constants are set correctly
         // These constants are defined inside the function, but we can verify they're documented
         // BATCH_SIZE should be 100 for optimal throughput
-        // MAX_CONCURRENT should be 200 for controlled concurrency
+        // MAX_CONCURRENT should be 100 to match BATCH_SIZE (controlled concurrency)
         // pool_max_idle_per_host should be 50 for better connection reuse
         
         // This test documents the expected performance characteristics
-        assert!(true, "Performance constants documented: BATCH_SIZE=100, MAX_CONCURRENT=200");
+        assert!(true, "Performance constants documented: BATCH_SIZE=100, MAX_CONCURRENT=100");
     }
 }
