@@ -55,7 +55,7 @@ impl StackTrie {
             node.add_rank(rank);
         }
         node.is_end_of_stack = true;
-        node.add_rank(rank);
+        // node.add_rank(rank);
     }
 
     fn format_rank_str(&self, ranks: &BTreeSet<u32>) -> String {
