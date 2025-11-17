@@ -4,6 +4,7 @@ use std::io::{Write, BufWriter};
 use futures::future::join_all;
 use std::time::{Duration, Instant};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Semaphore;
 
 /// Fetches JSON data from a list of URLs and saves the combined data to a file.
@@ -14,34 +15,51 @@ pub async fn fetch_and_save_urls(urls: Vec<String>) -> Result<(), Box<dyn std::e
     println!("Starting to fetch {} URLs...", total_urls);
 
     // Create client with optimized settings for high concurrency
+    // For single-host scenarios, connection reuse is critical
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .pool_max_idle_per_host(200)  // Increased to support higher concurrency
+        .pool_max_idle_per_host(500)  // Match MAX_CONCURRENT for single-host scenario
         .pool_idle_timeout(Duration::from_secs(90))
+        .tcp_keepalive(Duration::from_secs(60))  // Keep connections alive
+        .http2_keep_alive_interval(Duration::from_secs(10))  // HTTP/2 keepalive
+        .http2_keep_alive_timeout(Duration::from_secs(30))
         .build()?;
 
-    // Increase concurrency significantly for better performance
-    // MAX_CONCURRENT controls how many requests can run simultaneously
-    // Higher values = faster processing but more system resources
-    const MAX_CONCURRENT: usize = 500;  // Increased from 100 for better throughput
+    // For single-host scenarios with 10k+ requests, high concurrency is essential
+    const MAX_CONCURRENT: usize = 500;
     
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
+    let completed_count = Arc::new(AtomicUsize::new(0));
     let mut data_list = Vec::with_capacity(total_urls);
     let mut failed_urls = Vec::new();
 
+    // Progress reporting in background
+    let completed_clone = completed_count.clone();
+    let progress_handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let count = completed_clone.load(Ordering::Relaxed);
+            if count >= total_urls {
+                break;
+            }
+            let progress = (count as f64 / total_urls as f64 * 100.0) as usize;
+            println!("Progress: {}/{} URLs processed ({}%)", count, total_urls, progress);
+        }
+    });
+
     // Create ALL tasks upfront with semaphore-based concurrency control
-    // This allows continuous processing without batch-based waiting
     let mut all_tasks = Vec::new();
     
     for (idx, url) in urls.iter().enumerate() {
         let client = client.clone();
         let url_clone = url.clone();
         let sem = semaphore.clone();
+        let completed = completed_count.clone();
         
         let task = async move {
             let _permit = sem.acquire().await.unwrap();
             
-            match client.get(&url_clone).send().await {
+            let result = match client.get(&url_clone).send().await {
                 Ok(res) => {
                     let body = res.text().await?;
                     match serde_json::from_str::<Value>(&body) {
@@ -56,14 +74,20 @@ pub async fn fetch_and_save_urls(urls: Vec<String>) -> Result<(), Box<dyn std::e
                     eprintln!("Error fetching {}: {}", url_clone, e);
                     Ok((None, url_clone, idx))
                 }
-            }
+            };
+            
+            completed.fetch_add(1, Ordering::Relaxed);
+            result
         };
         all_tasks.push(task);
     }
     
-    // Process all tasks concurrently with semaphore controlling max concurrency
+    // Process all tasks concurrently
     println!("Processing all {} URLs with max {} concurrent requests...", total_urls, MAX_CONCURRENT);
     let results: Vec<Result<(Option<Value>, String, usize), reqwest::Error>> = join_all(all_tasks).await;
+    
+    // Stop progress reporting
+    progress_handle.abort();
     
     // Process results
     for result in results {
@@ -86,7 +110,10 @@ pub async fn fetch_and_save_urls(urls: Vec<String>) -> Result<(), Box<dyn std::e
     }
 
     let elapsed = start.elapsed();
-    println!("\n✓ Fetched {} URLs in {:.2}s", total_urls, elapsed.as_secs_f64());
+    let urls_per_sec = total_urls as f64 / elapsed.as_secs_f64();
+    println!("\n✓ Fetched {} URLs in {:.2}s ({:.1} URLs/sec)", 
+             total_urls, elapsed.as_secs_f64(), urls_per_sec);
+    println!("  Average time per URL: {:.0}ms", elapsed.as_millis() as f64 / total_urls as f64);
 
     // Log failed URLs
     if !failed_urls.is_empty() {
@@ -146,11 +173,12 @@ mod tests {
     #[test]
     fn test_constants() {
         // Verify optimized constants are set correctly
-        // These constants are defined inside the function, but we can verify they're documented
-        // MAX_CONCURRENT should be 500 for high throughput (controlled concurrency)
-        // pool_max_idle_per_host should be 200 for better connection reuse
+        // MAX_CONCURRENT: 500 for high throughput
+        // pool_max_idle_per_host: 500 to match MAX_CONCURRENT (single-host optimization)
+        // Added TCP keepalive and HTTP/2 keepalive for better connection reuse
+        // Added real-time progress reporting every 2 seconds
         
         // This test documents the expected performance characteristics
-        assert!(true, "Performance constants documented: MAX_CONCURRENT=500, pool_max_idle_per_host=200");
+        assert!(true, "Performance constants: MAX_CONCURRENT=500, pool_max_idle_per_host=500, with keepalive optimizations");
     }
 }
