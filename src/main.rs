@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Processed call stacks have been written to {}", output_path);
 
     // Merge stacks, write merged file, and draw flamegraph all in a blocking task
-    tokio::task::spawn_blocking(|| -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    tokio::task::spawn_blocking(|| {
         // Stream process the file to build the trie without loading everything into memory in the async runtime
         let file = File::open("./output/processed_stacks.txt")?;
         let reader = BufReader::new(file);
@@ -72,9 +72,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Drawing the frame graph is also blocking; keep it in the blocking task
         draw_frame_graph("./output/merged_stacks_4ranks.txt");
 
-        Ok(())
-    }).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?
-        .map_err(|e| e as Box<dyn std::error::Error>)?;
+        Ok::<(), std::io::Error>(())
+    }).await??;
 
     Ok(())
 
