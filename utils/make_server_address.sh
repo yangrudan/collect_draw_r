@@ -20,7 +20,7 @@ fi
 port=$START_PORT
 for pid in $pids; do
     echo "Configuring probing for PID $pid with port $port"
-    $PROBING_CONFIG_CMD $pid config "probing.server.address='$SERVER_ADDRESS:$port'"
+    $PROBING_CONFIG_CMD -t $pid config "probing.server.address='$SERVER_ADDRESS:$port'"
     port=$((port + 1))
 done
 
